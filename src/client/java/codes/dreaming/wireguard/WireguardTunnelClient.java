@@ -2,7 +2,10 @@ package codes.dreaming.wireguard;
 
 import codes.dreaming.wireguard.jni.Native;
 import net.fabricmc.api.ClientModInitializer;
+import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
 import net.fabricmc.loader.api.FabricLoader;
+import net.minecraft.client.gui.components.toasts.SystemToast;
+import net.minecraft.network.chat.Component;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -24,6 +27,9 @@ public class WireguardTunnelClient implements ClientModInitializer {
 	private static final String WARP_CREDENTIALS_PATH = "wireguard-tunnel/warp-credentials.json";
 
 	private static boolean tunnelReady = false;
+	private static boolean tunnelFailed = false;
+	private static String failureReason = null;
+	private static boolean toastShown = false;
 
 	static {
 		// Load native library and initialize JNI
@@ -35,7 +41,8 @@ public class WireguardTunnelClient implements ClientModInitializer {
 			LOGGER.info("Native version: {}", Native.version());
 		} catch (Throwable t) {
 			LOGGER.error("Failed to load native library", t);
-			throw new RuntimeException("Failed to load wireguard-tunnel native library", t);
+			tunnelFailed = true;
+			failureReason = "Failed to load native library: " + t.getMessage();
 		}
 	}
 
@@ -43,16 +50,41 @@ public class WireguardTunnelClient implements ClientModInitializer {
 	public void onInitializeClient() {
 		LOGGER.info("WireGuard Tunnel client initializing...");
 
+		// If native library failed to load, skip tunnel initialization
+		if (tunnelFailed) {
+			LOGGER.warn("Skipping tunnel initialization due to previous failure");
+			registerToastCallback();
+			return;
+		}
+
 		// Start the WARP tunnel
 		try {
 			startTunnel();
+			LOGGER.info("WireGuard Tunnel client initialized, tunnel state: {}",
+					Native.tunnelStateToString(Native.tunnelState()));
 		} catch (Exception e) {
 			LOGGER.error("Failed to start WARP tunnel", e);
-			throw new RuntimeException("WireGuard tunnel initialization failed", e);
+			tunnelFailed = true;
+			failureReason = "Failed to connect to WARP";
+			registerToastCallback();
 		}
+	}
 
-		LOGGER.info("WireGuard Tunnel client initialized, tunnel state: {}",
-				Native.tunnelStateToString(Native.tunnelState()));
+	/**
+	 * Register a client tick callback to show the toast once the client is ready.
+	 * We wait until the overlay is null (loading screen finished) and toasts are available.
+	 */
+	private void registerToastCallback() {
+		ClientTickEvents.END_CLIENT_TICK.register(client -> {
+			if (!toastShown && client.getOverlay() == null && client.getToasts() != null) {
+				toastShown = true;
+				client.getToasts().addToast(new SystemToast(
+						SystemToast.SystemToastIds.PERIODIC_NOTIFICATION,
+						Component.literal("WARP Connection Failed"),
+						Component.literal(failureReason != null ? failureReason : "Unknown error")
+				));
+			}
+		});
 	}
 
 	/**
@@ -85,7 +117,16 @@ public class WireguardTunnelClient implements ClientModInitializer {
 	 * @return true if the tunnel is ready
 	 */
 	public static boolean isTunnelReady() {
-		return tunnelReady && Native.isTunnelReady();
+		return tunnelReady && !tunnelFailed && Native.isTunnelReady();
+	}
+
+	/**
+	 * Check if the tunnel failed to initialize.
+	 *
+	 * @return true if the tunnel failed
+	 */
+	public static boolean isTunnelFailed() {
+		return tunnelFailed;
 	}
 
 	/**
