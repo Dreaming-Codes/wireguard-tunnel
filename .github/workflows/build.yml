@@ -8,8 +8,34 @@ on:
   pull_request:
 
 jobs:
-  build:
-    runs-on: ubuntu-24.04
+  build-native:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64-linux
+            triple: x86_64-unknown-linux-gnu
+            os: ubuntu-24.04
+            use-cross: false
+          - target: aarch64-linux
+            triple: aarch64-unknown-linux-gnu
+            os: ubuntu-24.04
+            use-cross: true
+          - target: x86_64-windows
+            triple: x86_64-pc-windows-gnu
+            os: ubuntu-24.04
+            use-cross: true
+          - target: x86_64-macos
+            triple: x86_64-apple-darwin
+            os: macos-13
+            use-cross: false
+          - target: aarch64-macos
+            triple: aarch64-apple-darwin
+            os: macos-14
+            use-cross: false
+
+    runs-on: ${{ matrix.os }}
+    name: Build native (${{ matrix.target }})
 
     steps:
       - name: Checkout repository
@@ -19,17 +45,55 @@ jobs:
         run: |
           rustup toolchain install stable --profile minimal
           rustup default stable
+          rustup target add ${{ matrix.triple }}
 
       - name: Cache Rust dependencies
         uses: Swatinem/rust-cache@v2
         with:
           workspaces: "rust -> target"
+          key: ${{ matrix.target }}
 
       - name: Install Cross
+        if: matrix.use-cross
         run: cargo install cross --git https://github.com/cross-rs/cross
 
       - name: Set up Docker
+        if: matrix.use-cross && runner.os == 'Linux'
         uses: docker/setup-buildx-action@v3
+
+      - name: Build native library
+        working-directory: rust
+        run: |
+          if [ "${{ matrix.use-cross }}" = "true" ]; then
+            cross build --release --target ${{ matrix.triple }}
+          else
+            cargo build --release --target ${{ matrix.triple }}
+          fi
+
+      - name: Determine library filename
+        id: libname
+        run: |
+          case "${{ matrix.target }}" in
+            *-windows) echo "filename=wireguard_tunnel_jni.dll" >> $GITHUB_OUTPUT ;;
+            *-macos) echo "filename=libwireguard_tunnel_jni.dylib" >> $GITHUB_OUTPUT ;;
+            *) echo "filename=libwireguard_tunnel_jni.so" >> $GITHUB_OUTPUT ;;
+          esac
+
+      - name: Upload native artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: native-${{ matrix.target }}
+          path: rust/target/${{ matrix.triple }}/release/${{ steps.libname.outputs.filename }}
+          if-no-files-found: error
+
+  build-jar:
+    needs: build-native
+    runs-on: ubuntu-24.04
+    name: Build JAR
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
       - name: Set up Java 21
         uses: actions/setup-java@v4
@@ -37,13 +101,27 @@ jobs:
           distribution: 'temurin'
           java-version: '21'
 
+      - name: Download all native artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: natives-download
+
+      - name: Organize native libraries
+        run: |
+          mkdir -p build/generated/natives/natives
+          for target in x86_64-linux aarch64-linux x86_64-windows x86_64-macos aarch64-macos; do
+            mkdir -p build/generated/natives/natives/$target
+            cp natives-download/native-$target/* build/generated/natives/natives/$target/
+          done
+          find build/generated/natives -type f
+
       - name: Grant permission for Gradlew
         run: chmod +x gradlew
 
-      - name: Build with Gradle
-        run: ./gradlew buildAllNativesRelease build
+      - name: Build JAR (skip native compilation)
+        run: ./gradlew jar remapJar sourcesJar -x prepareNativesForJar
 
-      - name: Upload Artifacts
+      - name: Upload JAR artifacts
         uses: actions/upload-artifact@v4
         with:
           name: build-artifacts

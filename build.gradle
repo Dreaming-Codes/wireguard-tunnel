@@ -150,8 +150,11 @@ tasks.named('runServer') {
 
 // For jar packaging: include natives from build/generated/natives
 jar {
-	// Default to host-only release native; `buildAllNativesRelease` is available for CI.
-	dependsOn 'prepareNativesForJar'
+	// Only depend on prepareNativesForJar if the task is not being skipped
+	// CI will skip this when natives are pre-built
+	if (!gradle.startParameter.excludedTaskNames.contains('prepareNativesForJar')) {
+		dependsOn 'prepareNativesForJar'
+	}
 	
 	// When buildAllNativesRelease has been run, depend on all copy tasks
 	mustRunAfter project.ext.targetTriples.keySet().collect { "copyNativeRelease-${it}" }
