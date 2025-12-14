@@ -95,8 +95,8 @@ ext.targetTriples.each { targetDir, triple ->
 		// corrupting `rust/target` (which can manifest as missing proc-macro crates).
 		environment 'CARGO_TARGET_DIR', cargoTargetDir.get().asFile.absolutePath
 		
-		// Use 'cross' for Linux cross-compilation, 'cargo' for others
-		def useCross = targetDir.contains("linux") && project.ext.getHostTargetDir() != targetDir
+		// Use 'cross' for all cross-compilation, 'cargo' only for host target
+		def useCross = project.ext.getHostTargetDir() != targetDir
 		def buildTool = useCross ? 'cross' : 'cargo'
 		
 		commandLine buildTool, 'build', '--release', '--target', triple
