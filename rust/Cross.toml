@@ -1,0 +1,8 @@
+[target.aarch64-pc-windows-msvc]
+image = "docker.io/i18nsite/aarch64-pc-windows-msvc-cross"
+
+[target.x86_64-apple-darwin]
+image = "docker.io/romariosun/x86_64-apple-darwin-cross:R_M"
+
+[target.aarch64-apple-darwin]
+image = "docker.io/freeznet/aarch64-apple-darwin-cross:11.3.1"
