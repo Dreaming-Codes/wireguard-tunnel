@@ -10,6 +10,149 @@ base {
 	archivesName = project.archives_base_name
 }
 
+// =============================================================================
+// Native library (Rust) build configuration
+// =============================================================================
+
+ext {
+	rustBasePath = "rust"
+	nativeLibName = "wireguard_tunnel_jni"
+	
+	// Map of target directory names to Rust target triples
+	targetTriples = [
+		'x86_64-linux': 'x86_64-unknown-linux-gnu',
+		'aarch64-linux': 'aarch64-unknown-linux-gnu',
+		'x86_64-windows': 'x86_64-pc-windows-msvc',
+		'x86_64-macos': 'x86_64-apple-darwin',
+		'aarch64-macos': 'aarch64-apple-darwin',
+	]
+}
+
+// Detect current host platform
+ext.getHostTargetDir = {
+	def osName = System.getProperty("os.name").toLowerCase()
+	def arch = System.getProperty("os.arch").toLowerCase()
+	
+	def normalizedArch = (arch == "amd64" || arch == "x86_64" || arch == "x64") ? "x86_64" : 
+						  (arch == "aarch64" || arch == "arm64") ? "aarch64" : arch
+	
+	def normalizedOs = osName.contains("linux") ? "linux" :
+					   osName.contains("win") ? "windows" :
+					   (osName.contains("mac") || osName.contains("darwin")) ? "macos" : osName
+	
+	return "${normalizedArch}-${normalizedOs}"
+}
+
+// Get the library filename for a given target directory
+ext.getLibFileName = { String targetDir ->
+	def libName = project.ext.nativeLibName
+	if (targetDir.contains("windows")) {
+		return "${libName}.dll"
+	} else if (targetDir.contains("macos")) {
+		return "lib${libName}.dylib"
+	} else {
+		return "lib${libName}.so"
+	}
+}
+
+// -----------------------------------------------------------------------------
+// Dev build task: host-only, debug mode (no --release)
+// -----------------------------------------------------------------------------
+
+tasks.register('cargoBuildHostDebug', Exec) {
+	description = "Build native library for host platform (debug)"
+	workingDir project.ext.rustBasePath
+	commandLine 'cargo', 'build'
+}
+
+tasks.register('copyNativeHostDebug', Copy) {
+	description = "Copy host debug native library to build/natives"
+	dependsOn 'cargoBuildHostDebug'
+	
+	def hostTargetDir = project.ext.getHostTargetDir()
+	def libFileName = project.ext.getLibFileName(hostTargetDir)
+	
+	from("${project.ext.rustBasePath}/target/debug") {
+		include libFileName
+	}
+	into layout.buildDirectory.dir("natives/${hostTargetDir}")
+}
+
+// -----------------------------------------------------------------------------
+// Release build tasks: all platforms, release mode
+// -----------------------------------------------------------------------------
+
+ext.targetTriples.each { targetDir, triple ->
+	tasks.register("cargoBuildRelease-${targetDir}", Exec) {
+		description = "Build native library for ${targetDir} (release)"
+		workingDir project.ext.rustBasePath
+		
+		// Use 'cross' for Linux cross-compilation, 'cargo' for others
+		def useCross = targetDir.contains("linux") && project.ext.getHostTargetDir() != targetDir
+		def buildTool = useCross ? 'cross' : 'cargo'
+		
+		commandLine buildTool, 'build', '--release', '--target', triple
+	}
+	
+	tasks.register("copyNativeRelease-${targetDir}", Copy) {
+		description = "Copy ${targetDir} release native library to staging"
+		dependsOn "cargoBuildRelease-${targetDir}"
+		
+		def libFileName = project.ext.getLibFileName(targetDir)
+		
+		from("${project.ext.rustBasePath}/target/${triple}/release") {
+			include libFileName
+		}
+		into layout.buildDirectory.dir("generated/natives/natives/${targetDir}")
+	}
+}
+
+tasks.register('buildAllNativesRelease') {
+	description = "Build native libraries for all platforms (release)"
+	dependsOn ext.targetTriples.keySet().collect { "copyNativeRelease-${it}" }
+}
+
+// -----------------------------------------------------------------------------
+// Hook native builds into Gradle lifecycle
+// -----------------------------------------------------------------------------
+
+// For runClient/runServer: build host debug native and copy to build/natives
+tasks.register('prepareNativesForRun') {
+	dependsOn 'copyNativeHostDebug'
+}
+
+tasks.named('runClient') {
+	dependsOn 'prepareNativesForRun'
+	doFirst {
+		systemProperty 'fabric.development', 'true'
+	}
+}
+
+tasks.named('runServer') {
+	dependsOn 'prepareNativesForRun'
+	doFirst {
+		systemProperty 'fabric.development', 'true'
+	}
+}
+
+// For jar packaging: include natives from build/generated/natives
+jar {
+	inputs.property "archivesName", project.base.archivesName
+
+	from("LICENSE") {
+		rename { "${it}_${inputs.properties.archivesName}"}
+	}
+	
+	// Include staged native libraries in the jar under /natives/
+	from(layout.buildDirectory.dir("generated/natives")) {
+		into("")
+	}
+}
+
+// =============================================================================
+// Standard Fabric Loom configuration
+// =============================================================================
+
 repositories {
 	// Add repositories to retrieve artifacts from in here.
 	// You should only use this when depending on other mods because
@@ -61,14 +204,6 @@ java {
 
 	sourceCompatibility = JavaVersion.VERSION_17
 	targetCompatibility = JavaVersion.VERSION_17
-}
-
-jar {
-	inputs.property "archivesName", project.base.archivesName
-
-	from("LICENSE") {
-		rename { "${it}_${inputs.properties.archivesName}"}
-	}
 }
 
 // configure the maven publication

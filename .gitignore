@@ -41,3 +41,7 @@ replay_*.log
 
 # direnv (nix)
 .direnv/
+
+# rust
+rust/target/
+rust/Cargo.lock

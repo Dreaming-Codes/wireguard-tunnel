@@ -1,0 +1,25 @@
+[package]
+name = "wireguard-tunnel-jni"
+version = "0.1.0"
+edition = "2021"
+license = "GPL-3.0"
+
+[lib]
+name = "wireguard_tunnel_jni"
+crate-type = ["cdylib"]
+
+[profile.release]
+opt-level = "z"
+lto = true
+panic = "abort"
+codegen-units = 1
+strip = "symbols"
+
+[dependencies]
+jni = "0.21"
+tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
+wireguard-netstack = "0.1.0"
+warp-wireguard-gen = "0.1.4"
+log = "0.4"
+thiserror = "2"
+once_cell = "1.21"
