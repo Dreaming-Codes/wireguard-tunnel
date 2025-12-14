@@ -16,23 +16,18 @@ jobs:
           - target: x86_64-linux
             triple: x86_64-unknown-linux-gnu
             os: ubuntu-24.04
-            use-cross: false
           - target: aarch64-linux
             triple: aarch64-unknown-linux-gnu
-            os: ubuntu-24.04
-            use-cross: true
+            os: ubuntu-24.04-arm
           - target: x86_64-windows
-            triple: x86_64-pc-windows-gnu
-            os: ubuntu-24.04
-            use-cross: true
+            triple: x86_64-pc-windows-msvc
+            os: windows-latest
           - target: x86_64-macos
             triple: x86_64-apple-darwin
             os: macos-15-large
-            use-cross: false
           - target: aarch64-macos
             triple: aarch64-apple-darwin
             os: macos-14
-            use-cross: false
 
     runs-on: ${{ matrix.os }}
     name: Build native (${{ matrix.target }})
@@ -45,7 +40,6 @@ jobs:
         run: |
           rustup toolchain install stable --profile minimal
           rustup default stable
-          rustup target add ${{ matrix.triple }}
 
       - name: Cache Rust dependencies
         uses: Swatinem/rust-cache@v2
@@ -53,29 +47,21 @@ jobs:
           workspaces: "rust -> target"
           key: ${{ matrix.target }}
 
-      - name: Install Cross
-        if: matrix.use-cross
-        run: cargo install cross --git https://github.com/cross-rs/cross
-
-      - name: Set up Docker
-        if: matrix.use-cross && runner.os == 'Linux'
-        uses: docker/setup-buildx-action@v3
-
-      - name: Remove cross-compilation config (for native builds)
-        if: runner.os == 'macOS'
+      - name: Remove cross-compilation config
+        if: runner.os != 'Windows'
         run: rm -f rust/.cargo/config.toml
+
+      - name: Remove cross-compilation config (Windows)
+        if: runner.os == 'Windows'
+        run: Remove-Item -Path rust/.cargo/config.toml -ErrorAction SilentlyContinue
 
       - name: Build native library
         working-directory: rust
-        run: |
-          if [ "${{ matrix.use-cross }}" = "true" ]; then
-            cross build --release --target ${{ matrix.triple }}
-          else
-            cargo build --release --target ${{ matrix.triple }}
-          fi
+        run: cargo build --release --target ${{ matrix.triple }}
 
       - name: Determine library filename
         id: libname
+        shell: bash
         run: |
           case "${{ matrix.target }}" in
             *-windows) echo "filename=wireguard_tunnel_jni.dll" >> $GITHUB_OUTPUT ;;
