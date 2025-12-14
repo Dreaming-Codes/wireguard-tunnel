@@ -19,12 +19,14 @@ ext {
 	nativeLibName = "wireguard_tunnel_jni"
 	
 	// Map of target directory names to Rust target triples
+	// NOTE: for now we only build Linux natives.
+	// macOS/Windows builds require additional toolchains/targets.
 	targetTriples = [
 		'x86_64-linux': 'x86_64-unknown-linux-gnu',
 		'aarch64-linux': 'aarch64-unknown-linux-gnu',
-		'x86_64-windows': 'x86_64-pc-windows-msvc',
-		'x86_64-macos': 'x86_64-apple-darwin',
-		'aarch64-macos': 'aarch64-apple-darwin',
+		// 'x86_64-windows': 'x86_64-pc-windows-msvc',
+		// 'x86_64-macos': 'x86_64-apple-darwin',
+		// 'aarch64-macos': 'aarch64-apple-darwin',
 	]
 }
 
@@ -83,9 +85,15 @@ tasks.register('copyNativeHostDebug', Copy) {
 // -----------------------------------------------------------------------------
 
 ext.targetTriples.each { targetDir, triple ->
+	def cargoTargetDir = layout.buildDirectory.dir("cargo/${targetDir}")
+
 	tasks.register("cargoBuildRelease-${targetDir}", Exec) {
 		description = "Build native library for ${targetDir} (release)"
 		workingDir project.ext.rustBasePath
+
+		// IMPORTANT: isolate Cargo outputs per target to avoid concurrent builds
+		// corrupting `rust/target` (which can manifest as missing proc-macro crates).
+		environment 'CARGO_TARGET_DIR', cargoTargetDir.get().asFile.absolutePath
 		
 		// Use 'cross' for Linux cross-compilation, 'cargo' for others
 		def useCross = targetDir.contains("linux") && project.ext.getHostTargetDir() != targetDir
@@ -100,7 +108,7 @@ ext.targetTriples.each { targetDir, triple ->
 		
 		def libFileName = project.ext.getLibFileName(targetDir)
 		
-		from("${project.ext.rustBasePath}/target/${triple}/release") {
+		from(cargoTargetDir.map { it.dir("${triple}/release") }) {
 			include libFileName
 		}
 		into layout.buildDirectory.dir("generated/natives/natives/${targetDir}")
@@ -109,7 +117,13 @@ ext.targetTriples.each { targetDir, triple ->
 
 tasks.register('buildAllNativesRelease') {
 	description = "Build native libraries for all platforms (release)"
-	dependsOn ext.targetTriples.keySet().collect { "copyNativeRelease-${it}" }
+	// NOTE: inside task closures, `ext` refers to the task's extra properties.
+	dependsOn project.ext.targetTriples.keySet().collect { "copyNativeRelease-${it}" }
+}
+
+tasks.register('prepareNativesForJar') {
+	description = "Stage native library for host platform (release)"
+	dependsOn "copyNativeRelease-${project.ext.getHostTargetDir()}"
 }
 
 // -----------------------------------------------------------------------------
@@ -137,6 +151,9 @@ tasks.named('runServer') {
 
 // For jar packaging: include natives from build/generated/natives
 jar {
+	// Default to host-only release native; `buildAllNativesRelease` is available for CI.
+	dependsOn 'prepareNativesForJar'
+
 	inputs.property "archivesName", project.base.archivesName
 
 	from("LICENSE") {
