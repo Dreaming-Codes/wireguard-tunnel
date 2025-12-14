@@ -1,6 +1,7 @@
 package codes.dreaming.wireguard.mixin.client;
 
 import codes.dreaming.wireguard.WireguardConfig;
+import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.screens.OptionsScreen;
 import net.minecraft.client.gui.screens.Screen;
@@ -43,6 +44,9 @@ public abstract class OptionsScreenMixin extends Screen {
                     button.setMessage(wireguard_tunnel$getButtonText());
                 }
         );
+
+        // Disable the button if we're in a game (connected to a world/server)
+        this.wireguard_tunnel$warpButton.active = Minecraft.getInstance().level == null;
 
         this.addRenderableWidget(this.wireguard_tunnel$warpButton);
     }
