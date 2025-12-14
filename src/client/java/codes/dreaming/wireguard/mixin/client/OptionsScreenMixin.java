@@ -43,9 +43,12 @@ public abstract class OptionsScreenMixin extends Screen {
                 button -> {
                     boolean nowEnabled = WireguardConfig.getInstance().toggleWarp();
                     button.setMessage(wireguard_tunnel$getButtonText());
-                    // Start tunnel if just enabled
                     if (nowEnabled) {
+                        // Start tunnel when enabled
                         WireguardTunnelClient.startTunnelWithFeedback();
+                    } else {
+                        // Stop tunnel when disabled
+                        WireguardTunnelClient.stopTunnelWithFeedback();
                     }
                 }
         );

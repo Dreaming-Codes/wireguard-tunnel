@@ -26,10 +26,22 @@ public class WireguardTunnelClient implements ClientModInitializer {
 	 */
 	private static final String WARP_CREDENTIALS_PATH = "wireguard-tunnel/warp-credentials.json";
 
+	/**
+	 * Initial delay between retry attempts in milliseconds.
+	 */
+	private static final long INITIAL_RETRY_DELAY_MS = 1000;
+
+	/**
+	 * Maximum delay between retry attempts in milliseconds (30 seconds).
+	 */
+	private static final long MAX_RETRY_DELAY_MS = 30000;
+
 	private static boolean tunnelReady = false;
 	private static boolean tunnelFailed = false;
 	private static String failureReason = null;
 	private static boolean toastShown = false;
+	private static volatile boolean tunnelConnecting = false;
+	private static volatile Thread connectThread = null;
 
 	static {
 		// Load native library and initialize JNI
@@ -141,17 +153,38 @@ public class WireguardTunnelClient implements ClientModInitializer {
 	 * This should be called when the client is shutting down.
 	 */
 	public static void shutdownTunnel() {
+		// Interrupt any ongoing connection attempt
+		if (connectThread != null && connectThread.isAlive()) {
+			connectThread.interrupt();
+			connectThread = null;
+		}
+		tunnelConnecting = false;
+
 		if (tunnelReady) {
 			LOGGER.info("Shutting down WARP tunnel...");
 			Native.shutdownTunnel();
 			tunnelReady = false;
 			LOGGER.info("WARP tunnel shut down");
 		}
+
+		// Reset failure state so tunnel can be restarted
+		tunnelFailed = false;
+		failureReason = null;
+	}
+
+	/**
+	 * Stop the tunnel with user feedback (e.g., when disabled via button).
+	 * Shows a toast notification confirming the tunnel has been stopped.
+	 */
+	public static void stopTunnelWithFeedback() {
+		shutdownTunnel();
+		showToast("WARP Disconnected", "Tunnel has been stopped");
 	}
 
 	/**
 	 * Start the tunnel on-demand (e.g., when enabled via button) with user feedback.
 	 * Shows a toast notification indicating success or failure.
+	 * Will retry indefinitely with exponential backoff (max 30s) while WARP is still enabled.
 	 * <p>
 	 * This method should be called from the UI thread and will start the tunnel
 	 * in a background thread to avoid blocking the game.
@@ -163,42 +196,97 @@ public class WireguardTunnelClient implements ClientModInitializer {
 			return;
 		}
 
-		if (tunnelFailed) {
-			LOGGER.warn("Cannot start tunnel due to previous failure: {}", failureReason);
-			showToast("WARP Connection Failed", failureReason != null ? failureReason : "Previous initialization failed");
+		if (tunnelConnecting) {
+			LOGGER.info("Tunnel connection already in progress");
+			showToast("WARP Connecting", "Connection attempt in progress...");
 			return;
 		}
 
+		// Reset failure state for new attempt
+		tunnelFailed = false;
+		failureReason = null;
+
+		showToast("WARP Connecting", "Starting tunnel...");
+
 		// Start tunnel in background thread to avoid blocking the UI
-		new Thread(() -> {
+		connectThread = new Thread(() -> {
+			tunnelConnecting = true;
+			int attempt = 0;
+			long currentDelay = INITIAL_RETRY_DELAY_MS;
+
 			try {
-				LOGGER.info("Starting WARP tunnel on-demand...");
+				while (true) {
+					// Check if WARP is still enabled before each attempt
+					if (!WireguardConfig.getInstance().isWarpEnabled()) {
+						LOGGER.info("WARP disabled during connection, aborting");
+						tunnelConnecting = false;
+						return;
+					}
 
-				Path configDir = FabricLoader.getInstance().getConfigDir();
-				Path credPath = configDir.resolve(WARP_CREDENTIALS_PATH);
+					// Check if thread was interrupted (tunnel shutdown requested)
+					if (Thread.currentThread().isInterrupted()) {
+						LOGGER.info("Tunnel connection interrupted");
+						tunnelConnecting = false;
+						return;
+					}
 
-				int state = Native.startWarpTunnel(credPath.toString());
+					attempt++;
+					LOGGER.info("Starting WARP tunnel (attempt {})", attempt);
 
-				if (state != Native.TUNNEL_STATE_READY) {
-					String reason = "Tunnel state: " + Native.tunnelStateToString(state);
-					LOGGER.error("Failed to start tunnel: {}", reason);
-					tunnelFailed = true;
-					failureReason = reason;
-					showToast("WARP Connection Failed", reason);
-					return;
+					try {
+						Path configDir = FabricLoader.getInstance().getConfigDir();
+						Path credPath = configDir.resolve(WARP_CREDENTIALS_PATH);
+
+						int state = Native.startWarpTunnel(credPath.toString());
+
+						if (state == Native.TUNNEL_STATE_READY) {
+							tunnelReady = true;
+							tunnelConnecting = false;
+							LOGGER.info("WARP tunnel started successfully!");
+							showToast("WARP Connected", "Tunnel is now active");
+							return;
+						}
+
+						failureReason = "Tunnel state: " + Native.tunnelStateToString(state);
+						LOGGER.warn("Tunnel not ready: {} (attempt {})", failureReason, attempt);
+
+					} catch (Exception e) {
+						failureReason = e.getMessage();
+						LOGGER.warn("Failed to start tunnel (attempt {}): {}", attempt, e.getMessage());
+					}
+
+					// Check again if WARP is still enabled before sleeping
+					if (!WireguardConfig.getInstance().isWarpEnabled()) {
+						LOGGER.info("WARP disabled during connection, aborting");
+						tunnelConnecting = false;
+						return;
+					}
+
+					// Show retry toast with current delay
+					long delaySeconds = currentDelay / 1000;
+					showToast("WARP Retrying", "Next attempt in " + delaySeconds + "s...");
+
+					try {
+						Thread.sleep(currentDelay);
+					} catch (InterruptedException e) {
+						LOGGER.info("Retry sleep interrupted");
+						tunnelConnecting = false;
+						return;
+					}
+
+					// Exponential backoff: double the delay, up to max
+					currentDelay = Math.min(currentDelay * 2, MAX_RETRY_DELAY_MS);
 				}
 
-				tunnelReady = true;
-				LOGGER.info("WARP tunnel started successfully on-demand!");
-				showToast("WARP Connected", "Tunnel is now active");
-
 			} catch (Exception e) {
-				LOGGER.error("Failed to start WARP tunnel on-demand", e);
 				tunnelFailed = true;
+				tunnelConnecting = false;
 				failureReason = e.getMessage();
+				LOGGER.error("Unexpected error starting WARP tunnel", e);
 				showToast("WARP Connection Failed", e.getMessage());
 			}
-		}, "WireguardTunnel-Start").start();
+		}, "WireguardTunnel-Connect");
+		connectThread.start();
 	}
 
 	/**
