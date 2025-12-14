@@ -1,8 +1,11 @@
-[target.aarch64-pc-windows-msvc]
-image = "docker.io/i18nsite/aarch64-pc-windows-msvc-cross"
-
 [target.x86_64-apple-darwin]
 image = "docker.io/romariosun/x86_64-apple-darwin-cross:R_M"
+pre-build = [
+    "rm -f /usr/bin/ld && ln -s /opt/osxcross/bin/x86_64-apple-darwin21.4-ld /usr/bin/ld"
+]
 
 [target.aarch64-apple-darwin]
 image = "docker.io/freeznet/aarch64-apple-darwin-cross:11.3.1"
+pre-build = [
+    "rm -f /usr/bin/ld && ln -s /opt/osxcross/bin/aarch64-apple-darwin20.4-ld /usr/bin/ld"
+]

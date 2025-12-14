@@ -19,12 +19,11 @@ ext {
 	nativeLibName = "wireguard_tunnel_jni"
 	
 	// Map of target directory names to Rust target triples
-	// macOS/Windows builds require additional toolchains/targets.
 	targetTriples = [
 		'x86_64-linux': 'x86_64-unknown-linux-gnu',
 		'aarch64-linux': 'aarch64-unknown-linux-gnu',
 		'x86_64-windows': 'x86_64-pc-windows-gnu',
-		'aarch64-windows': 'aarch64-pc-windows-msvc',
+		// 'aarch64-windows': 'aarch64-pc-windows-msvc', // Disabled: MSVC cross-compilation not working with clang
 		'x86_64-macos': 'x86_64-apple-darwin',
 		'aarch64-macos': 'aarch64-apple-darwin',
 	]
@@ -153,6 +152,9 @@ tasks.named('runServer') {
 jar {
 	// Default to host-only release native; `buildAllNativesRelease` is available for CI.
 	dependsOn 'prepareNativesForJar'
+	
+	// When buildAllNativesRelease has been run, depend on all copy tasks
+	mustRunAfter project.ext.targetTriples.keySet().collect { "copyNativeRelease-${it}" }
 
 	inputs.property "archivesName", project.base.archivesName
 
