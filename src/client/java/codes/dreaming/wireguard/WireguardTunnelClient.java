@@ -57,6 +57,12 @@ public class WireguardTunnelClient implements ClientModInitializer {
 			return;
 		}
 
+		// Check if WARP is enabled in config before starting the tunnel
+		if (!WireguardConfig.getInstance().isWarpEnabled()) {
+			LOGGER.info("WARP is disabled in config, skipping tunnel initialization");
+			return;
+		}
+
 		// Start the WARP tunnel
 		try {
 			startTunnel();
@@ -140,6 +146,80 @@ public class WireguardTunnelClient implements ClientModInitializer {
 			Native.shutdownTunnel();
 			tunnelReady = false;
 			LOGGER.info("WARP tunnel shut down");
+		}
+	}
+
+	/**
+	 * Start the tunnel on-demand (e.g., when enabled via button) with user feedback.
+	 * Shows a toast notification indicating success or failure.
+	 * <p>
+	 * This method should be called from the UI thread and will start the tunnel
+	 * in a background thread to avoid blocking the game.
+	 */
+	public static void startTunnelWithFeedback() {
+		if (tunnelReady) {
+			LOGGER.info("Tunnel already running");
+			showToast("WARP Already Connected", "Tunnel is already running");
+			return;
+		}
+
+		if (tunnelFailed) {
+			LOGGER.warn("Cannot start tunnel due to previous failure: {}", failureReason);
+			showToast("WARP Connection Failed", failureReason != null ? failureReason : "Previous initialization failed");
+			return;
+		}
+
+		// Start tunnel in background thread to avoid blocking the UI
+		new Thread(() -> {
+			try {
+				LOGGER.info("Starting WARP tunnel on-demand...");
+
+				Path configDir = FabricLoader.getInstance().getConfigDir();
+				Path credPath = configDir.resolve(WARP_CREDENTIALS_PATH);
+
+				int state = Native.startWarpTunnel(credPath.toString());
+
+				if (state != Native.TUNNEL_STATE_READY) {
+					String reason = "Tunnel state: " + Native.tunnelStateToString(state);
+					LOGGER.error("Failed to start tunnel: {}", reason);
+					tunnelFailed = true;
+					failureReason = reason;
+					showToast("WARP Connection Failed", reason);
+					return;
+				}
+
+				tunnelReady = true;
+				LOGGER.info("WARP tunnel started successfully on-demand!");
+				showToast("WARP Connected", "Tunnel is now active");
+
+			} catch (Exception e) {
+				LOGGER.error("Failed to start WARP tunnel on-demand", e);
+				tunnelFailed = true;
+				failureReason = e.getMessage();
+				showToast("WARP Connection Failed", e.getMessage());
+			}
+		}, "WireguardTunnel-Start").start();
+	}
+
+	/**
+	 * Show a toast notification to the user.
+	 *
+	 * @param title   the toast title
+	 * @param message the toast message
+	 */
+	private static void showToast(String title, String message) {
+		net.minecraft.client.Minecraft client = net.minecraft.client.Minecraft.getInstance();
+		if (client != null) {
+			// Execute on main thread to avoid threading issues
+			client.execute(() -> {
+				if (client.getToasts() != null) {
+					client.getToasts().addToast(new SystemToast(
+							SystemToast.SystemToastIds.PERIODIC_NOTIFICATION,
+							Component.literal(title),
+							Component.literal(message)
+					));
+				}
+			});
 		}
 	}
 }

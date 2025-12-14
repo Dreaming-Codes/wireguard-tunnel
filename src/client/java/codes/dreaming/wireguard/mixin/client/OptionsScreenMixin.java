@@ -1,6 +1,7 @@
 package codes.dreaming.wireguard.mixin.client;
 
 import codes.dreaming.wireguard.WireguardConfig;
+import codes.dreaming.wireguard.WireguardTunnelClient;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.screens.OptionsScreen;
@@ -40,8 +41,12 @@ public abstract class OptionsScreenMixin extends Screen {
                 x, y, buttonWidth, buttonHeight,
                 wireguard_tunnel$getButtonText(),
                 button -> {
-                    WireguardConfig.getInstance().toggleWarp();
+                    boolean nowEnabled = WireguardConfig.getInstance().toggleWarp();
                     button.setMessage(wireguard_tunnel$getButtonText());
+                    // Start tunnel if just enabled
+                    if (nowEnabled) {
+                        WireguardTunnelClient.startTunnelWithFeedback();
+                    }
                 }
         );
 
