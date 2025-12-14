@@ -22,6 +22,9 @@ jobs:
           - target: x86_64-windows
             triple: x86_64-pc-windows-msvc
             os: windows-latest
+          - target: aarch64-windows
+            triple: aarch64-pc-windows-msvc
+            os: windows 11 arm
           - target: x86_64-macos
             triple: x86_64-apple-darwin
             os: macos-15-large
@@ -99,7 +102,7 @@ jobs:
       - name: Organize native libraries
         run: |
           mkdir -p build/generated/natives/natives
-          for target in x86_64-linux aarch64-linux x86_64-windows x86_64-macos aarch64-macos; do
+          for target in x86_64-linux aarch64-linux x86_64-windows aarch64-windows x86_64-macos aarch64-macos; do
             mkdir -p build/generated/natives/natives/$target
             cp natives-download/native-$target/* build/generated/natives/natives/$target/
           done
