@@ -19,14 +19,14 @@ ext {
 	nativeLibName = "wireguard_tunnel_jni"
 	
 	// Map of target directory names to Rust target triples
-	// NOTE: for now we only build Linux natives.
 	// macOS/Windows builds require additional toolchains/targets.
 	targetTriples = [
 		'x86_64-linux': 'x86_64-unknown-linux-gnu',
 		'aarch64-linux': 'aarch64-unknown-linux-gnu',
-		// 'x86_64-windows': 'x86_64-pc-windows-msvc',
-		// 'x86_64-macos': 'x86_64-apple-darwin',
-		// 'aarch64-macos': 'aarch64-apple-darwin',
+		'x86_64-windows': 'x86_64-pc-windows-gnu',
+		'aarch64-windows': 'aarch64-pc-windows-msvc',
+		'x86_64-macos': 'x86_64-apple-darwin',
+		'aarch64-macos': 'aarch64-apple-darwin',
 	]
 }
 
