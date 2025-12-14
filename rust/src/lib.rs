@@ -264,7 +264,7 @@ pub extern "system" fn Java_codes_dreaming_wireguard_jni_Native_initJNI(
     // Initialize env_logger for Rust logging (respects RUST_LOG env var)
     // Default to "info" level if RUST_LOG is not set
     let _ = env_logger::Builder::from_env(
-        env_logger::Env::default().default_filter_or("info,wireguard_netstack=debug")
+        env_logger::Env::default().default_filter_or("info")
     ).try_init();
     
     let _ = env.get_java_vm().expect("Failed to get JavaVM");
@@ -535,7 +535,7 @@ pub extern "system" fn Java_codes_dreaming_wireguard_jni_Native_tcpRead<'local>(
 
     match result {
         Ok((0, _)) => {
-            log::info!("tcpRead: returning EOF (0 bytes)");
+            log::debug!("tcpRead: returning EOF (0 bytes)");
             0
         }
         Ok((n, rust_buf)) => {

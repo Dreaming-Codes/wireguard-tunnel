@@ -1,5 +1,6 @@
 package codes.dreaming.wireguard.mixin.client;
 
+import codes.dreaming.wireguard.WireguardConfig;
 import codes.dreaming.wireguard.netty.WgSocketChannel;
 import io.netty.bootstrap.Bootstrap;
 import io.netty.channel.Channel;
@@ -53,6 +54,12 @@ public class ClientConnectionMixin {
             boolean useEpoll,
             CallbackInfoReturnable<Connection> cir
     ) {
+        // Skip WARP routing if disabled
+        if (!WireguardConfig.getInstance().isWarpEnabled()) {
+            LOGGER.info("WARP disabled, using direct connection to {}", address);
+            return;
+        }
+
         LOGGER.info("Intercepting connection to {} via WireGuard tunnel", address);
 
         // Create or reuse our event loop group

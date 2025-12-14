@@ -105,7 +105,7 @@ public class WgSocketChannel extends AbstractChannel {
 
         // Start reader thread if not already running
         if (readerThread == null || !readerThread.isAlive()) {
-            LOGGER.info("Starting reader thread for channel {}", id());
+            LOGGER.debug("Starting reader thread for channel {}", id());
             readerThread = new Thread(this::readLoop, "WgSocketChannel-Reader-" + id());
             readerThread.setDaemon(true);
             readerThread.start();
@@ -136,24 +136,9 @@ public class WgSocketChannel extends AbstractChannel {
                 byte[] data = new byte[readableBytes];
                 buf.readBytes(data);
 
-                LOGGER.info("Writing {} bytes to handle {}", data.length, handle);
-                
-                // Log first packet details (likely handshake) for debugging
-                if (data.length < 100) {
-                    StringBuilder hex = new StringBuilder();
-                    StringBuilder ascii = new StringBuilder();
-                    for (int i = 0; i < data.length; i++) {
-                        hex.append(String.format("%02x ", data[i] & 0xFF));
-                        char c = (char) (data[i] & 0xFF);
-                        ascii.append(c >= 32 && c < 127 ? c : '.');
-                    }
-                    LOGGER.info("Packet hex: {}", hex);
-                    LOGGER.info("Packet ascii: {}", ascii);
-                }
-
                 try {
                     int written = Native.tcpWrite(handle, data, 0, data.length);
-                    LOGGER.info("Wrote {} bytes (requested {})", written, data.length);
+                    LOGGER.debug("Wrote {} bytes to handle {}", written, handle);
                     if (written < 0) {
                         throw new IOException("Write failed");
                     }
@@ -197,7 +182,7 @@ public class WgSocketChannel extends AbstractChannel {
      * TCP connection and dispatching to the Netty pipeline.
      */
     private void readLoop() {
-        LOGGER.info("Read loop started for channel {}", id());
+        LOGGER.debug("Read loop started for channel {}", id());
         byte[] buffer = new byte[READ_BUFFER_SIZE];
 
         try {
@@ -228,7 +213,7 @@ public class WgSocketChannel extends AbstractChannel {
                     break;
                 } else if (bytesRead == 0) {
                     // EOF
-                    LOGGER.info("Read returned EOF");
+                    LOGGER.debug("Read returned EOF");
                     inputShutdown.set(true);
                     eventLoop().execute(() -> pipeline().fireUserEventTriggered(
                             ChannelInputShutdownEvent.INSTANCE));
@@ -306,7 +291,7 @@ public class WgSocketChannel extends AbstractChannel {
                             "Cloudflare blocks connections from WARP - connection may fail.", host);
                 }
 
-                LOGGER.info("Connecting to {}:{} via WireGuard tunnel", host, port);
+                LOGGER.debug("Connecting to {}:{} via WireGuard tunnel", host, port);
 
                 // Perform connection in a separate thread to not block the event loop
                 new Thread(() -> {
@@ -326,7 +311,7 @@ public class WgSocketChannel extends AbstractChannel {
                             pipeline().fireChannelActive();
                         });
 
-                        LOGGER.info("Connected to {}:{} via WireGuard tunnel", host, port);
+                        LOGGER.debug("Connected to {}:{} via WireGuard tunnel", host, port);
                     } catch (Exception e) {
                         eventLoop().execute(() -> promise.setFailure(e));
                     }
